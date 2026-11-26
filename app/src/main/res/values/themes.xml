@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ExpressLease" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:statusBarColor">@color/bg_darkest</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
+    </style>
+    <style name="Theme.ExpressLease.Splash" parent="Theme.ExpressLease">
+        <item name="android:windowBackground">@color/bg_dark</item>
+    </style>
+</resources>

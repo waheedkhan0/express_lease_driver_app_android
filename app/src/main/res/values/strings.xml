@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ExpressLease Driver</string>
+    <string name="tracking_channel_name">GPS Location Tracking</string>
+    <string name="tracking_channel_desc">Persistent notification for vehicle location tracking</string>
+</resources>
