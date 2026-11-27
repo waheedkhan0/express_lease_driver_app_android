@@ -2,10 +2,12 @@ package com.expresslease.driver.ui.home
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -55,14 +57,34 @@ class HomeActivity : ComponentActivity() {
         } else true
 
         if (fineGranted) {
+            startGpsService()
             if (bgGranted) {
-                startGpsService()
+                viewModel.setPermissionWarning(null)
             } else {
                 // Guide user to settings for background location
-                viewModel.setPermissionWarning("Please grant 'Allow all the time' location permission in Settings for background tracking")
+                viewModel.setPermissionWarning("Please grant 'Allow all the time' location permission in Settings for uninterrupted compliance tracking")
             }
         } else {
+            viewModel.setTrackingActive(false)
             viewModel.setPermissionWarning("Location permission denied — tracking inactive")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val bgGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        } else true
+        if (fineGranted) {
+            startGpsService()
+            if (bgGranted) {
+                viewModel.setPermissionWarning(null)
+            }
         }
     }
 
@@ -83,7 +105,6 @@ class HomeActivity : ComponentActivity() {
 
                 HomeScreen(
                     uiState = uiState,
-                    onSelectBike = { viewModel.selectBike(it) },
                     onRefresh = { viewModel.loadBikes() },
                     onLogout = { viewModel.logout() },
                     onOpenSettings = {
@@ -127,27 +148,16 @@ class HomeActivity : ComponentActivity() {
 @Composable
 fun HomeScreen(
     uiState: HomeUiState,
-    onSelectBike: (Bike) -> Unit,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
-    var showBikeSheet by remember { mutableStateOf(false) }
 
     if (showLogoutDialog) {
         LogoutDialog(
             onConfirm = { showLogoutDialog = false; onLogout() },
             onDismiss = { showLogoutDialog = false },
-        )
-    }
-
-    if (showBikeSheet && uiState.bikes.isNotEmpty()) {
-        BikeSelectionSheet(
-            bikes = uiState.bikes,
-            selectedChassis = uiState.selectedBike?.chassisNumber,
-            onSelect = { onSelectBike(it); showBikeSheet = false },
-            onDismiss = { showBikeSheet = false },
         )
     }
 
@@ -180,16 +190,25 @@ fun HomeScreen(
                 )
             }
 
-            // Bike selector card
+            // Assigned bike card (auto-assigned from Odoo backend)
             BikeCard(
-                selectedBike = uiState.selectedBike,
+                assignedBike = uiState.assignedBike,
+                isUnassigned = uiState.isUnassigned,
                 isLoading = uiState.isLoading,
-                onClick = { showBikeSheet = true },
             )
 
+            // Unassigned bike notice
+            if (uiState.isUnassigned && !uiState.isLoading) {
+                WarningBanner(
+                    message = "No motorbike is assigned to your account in Odoo. Please contact your fleet manager, then tap Refresh.",
+                    onAction = onRefresh,
+                    actionLabel = "Refresh",
+                )
+            }
+
             // Vehicle details
-            if (uiState.selectedBike != null) {
-                VehicleDetailsCard(bike = uiState.selectedBike)
+            if (uiState.assignedBike != null) {
+                VehicleDetailsCard(bike = uiState.assignedBike)
             }
 
             // Radar + GPS panel
@@ -252,9 +271,8 @@ fun TopBar(
 }
 
 @Composable
-fun BikeCard(selectedBike: Bike?, isLoading: Boolean, onClick: () -> Unit) {
+fun BikeCard(assignedBike: Bike?, isUnassigned: Boolean, isLoading: Boolean) {
     Card(
-        onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
@@ -263,11 +281,16 @@ fun BikeCard(selectedBike: Bike?, isLoading: Boolean, onClick: () -> Unit) {
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Default.TwoWheeler, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(28.dp))
+            Icon(
+                Icons.Default.TwoWheeler,
+                null,
+                tint = if (assignedBike != null) Color(0xFF38BDF8) else Color(0xFFF59E0B),
+                modifier = Modifier.size(28.dp),
+            )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    "ACTIVE MOTORBIKE",
+                    "ASSIGNED MOTORBIKE",
                     fontSize = 10.sp,
                     color = Color(0xFF94A3B8),
                     fontWeight = FontWeight.Bold,
@@ -278,8 +301,16 @@ fun BikeCard(selectedBike: Bike?, isLoading: Boolean, onClick: () -> Unit) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                 } else {
                     Text(
-                        selectedBike?.displayName ?: "Tap to select your bike →",
-                        color = if (selectedBike != null) Color.White else Color(0xFF64748B),
+                        text = when {
+                            assignedBike != null -> assignedBike.displayName
+                            isUnassigned -> "No motorbike assigned"
+                            else -> "Loading assignment..."
+                        },
+                        color = when {
+                            assignedBike != null -> Color.White
+                            isUnassigned -> Color(0xFFFBBF24)
+                            else -> Color(0xFF64748B)
+                        },
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                         maxLines = 1,
@@ -287,7 +318,6 @@ fun BikeCard(selectedBike: Bike?, isLoading: Boolean, onClick: () -> Unit) {
                     )
                 }
             }
-            Icon(Icons.Default.ExpandMore, null, tint = Color(0xFF64748B))
         }
     }
 }
@@ -510,57 +540,6 @@ fun WarningBanner(message: String, onAction: () -> Unit, actionLabel: String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun BikeSelectionSheet(
-    bikes: List<Bike>,
-    selectedChassis: String?,
-    onSelect: (Bike) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E293B),
-    ) {
-        Column(Modifier.padding(bottom = 32.dp)) {
-            Text(
-                "SELECT YOUR MOTORBIKE",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF94A3B8),
-                letterSpacing = 1.5.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-            )
-            bikes.forEach { bike ->
-                val isSelected = bike.chassisNumber == selectedChassis
-                ListItem(
-                    headlineContent = {
-                        Text(bike.displayName, color = Color.White, fontWeight = FontWeight.SemiBold)
-                    },
-                    supportingContent = {
-                        Text("Chassis: ${bike.chassisNumber}", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    },
-                    leadingContent = {
-                        Icon(
-                            Icons.Default.TwoWheeler,
-                            null,
-                            tint = if (isSelected) Color(0xFF38BDF8) else Color(0xFF64748B),
-                        )
-                    },
-                    trailingContent = {
-                        if (isSelected) Icon(Icons.Default.Check, null, tint = Color(0xFF34D399))
-                    },
-                    modifier = Modifier.clickable { onSelect(bike) },
-                    colors = ListItemDefaults.colors(
-                        containerColor = if (isSelected) Color(0x1438BDF8) else Color.Transparent,
-                    ),
-                )
-                HorizontalDivider(color = Color(0x08FFFFFF))
-            }
-        }
-    }
-}
-
 @Composable
 fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
@@ -569,7 +548,7 @@ fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         title = { Text("Log Out", color = Color.White) },
         text = {
             Text(
-                "This will stop active location tracking and clear your session.",
+                "This will clear your session and return to the login screen.",
                 color = Color(0xFF94A3B8),
             )
         },

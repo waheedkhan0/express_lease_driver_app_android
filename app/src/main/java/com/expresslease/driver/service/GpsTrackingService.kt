@@ -30,7 +30,6 @@ class GpsTrackingService : Service() {
         private const val TAG = "GpsTrackingService"
         const val CHANNEL_ID = "express_lease_tracking_channel"
         const val NOTIFICATION_ID = 888
-        const val ACTION_STOP = "com.expresslease.driver.ACTION_STOP_TRACKING"
         const val ACTION_START = "com.expresslease.driver.ACTION_START_TRACKING"
 
         // GPS update interval: 30 seconds for active tracking
@@ -39,9 +38,6 @@ class GpsTrackingService : Service() {
 
         fun startIntent(context: Context) = Intent(context, GpsTrackingService::class.java)
             .also { it.action = ACTION_START }
-
-        fun stopIntent(context: Context) = Intent(context, GpsTrackingService::class.java)
-            .also { it.action = ACTION_STOP }
     }
 
     @Inject lateinit var repository: OdooRepository
@@ -61,29 +57,14 @@ class GpsTrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopTracking()
-                return START_NOT_STICKY
-            }
-            else -> startTracking()
-        }
-        return START_STICKY // Auto-restart if killed by OS
+        startTracking()
+        return START_STICKY // Auto-restart if killed by OS; cannot be stopped by user for compliance
     }
 
     private fun startTracking() {
         startForeground(NOTIFICATION_ID, buildNotification("Initializing GPS tracking..."))
         requestLocationUpdates()
         Log.i(TAG, "GPS Tracking Service started")
-    }
-
-    private fun stopTracking() {
-        fusedLocationClient.removeLocationUpdates(locationCallback)
-        serviceScope.cancel()
-        wakeLock?.release()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-        Log.i(TAG, "GPS Tracking Service stopped")
     }
 
     private fun setupLocationCallback() {
@@ -103,7 +84,7 @@ class GpsTrackingService : Service() {
 
     private fun handleLocation(location: Location) {
         val chassis = prefs.activeBikeChassis ?: run {
-            updateNotification("No bike selected — tap to open app")
+            updateNotification("No bike assigned — tap to open app")
             return
         }
         val bikeName = prefs.activeBikeName ?: chassis
@@ -176,18 +157,12 @@ class GpsTrackingService : Service() {
             Intent(this, HomeActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val stopIntent = PendingIntent.getService(
-            this, 1,
-            stopIntent(this),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(subTitle?.let { "Tracking: $it" } ?: "EXPRESS LEASE — Live Tracking")
             .setContentText(content)
             .setSmallIcon(R.drawable.ic_notification_gps)
             .setOngoing(true)
             .setContentIntent(openIntent)
-            .addAction(R.drawable.ic_notification_gps, "Stop", stopIntent)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setSilent(true)
             .build()

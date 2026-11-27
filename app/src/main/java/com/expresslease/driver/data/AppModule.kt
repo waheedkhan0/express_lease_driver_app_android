@@ -7,6 +7,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -21,11 +22,25 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideOkHttpClient(prefs: PrefsManager): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val targetBase = prefs.serverUrl?.trimEnd('/')?.toHttpUrlOrNull()
+                if (targetBase != null && original.url.host == "localhost") {
+                    val newUrl = original.url.newBuilder()
+                        .scheme(targetBase.scheme)
+                        .host(targetBase.host)
+                        .port(targetBase.port)
+                        .build()
+                    chain.proceed(original.newBuilder().url(newUrl).build())
+                } else {
+                    chain.proceed(original)
+                }
+            }
 
         if (BuildConfig.DEBUG) {
             builder.addInterceptor(
@@ -41,12 +56,10 @@ object AppModule {
     @Singleton
     fun provideRetrofit(
         okHttpClient: OkHttpClient,
-        prefs: PrefsManager,
     ): Retrofit {
-        // Base URL is dynamic — using localhost as placeholder; actual calls prepend server URL
-        val baseUrl = prefs.serverUrl?.let { "$it/" } ?: "https://localhost/"
+        // Base URL is resolved dynamically per-request by the OkHttp interceptor from PrefsManager.serverUrl
         return Retrofit.Builder()
-            .baseUrl(baseUrl)
+            .baseUrl("https://localhost/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

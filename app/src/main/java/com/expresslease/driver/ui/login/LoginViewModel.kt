@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
 data class LoginUiState(
@@ -81,7 +83,7 @@ class LoginViewModel @Inject constructor(
             )
             val request = Request.Builder()
                 .url("$url/web/session/authenticate")
-                .post(okhttp3.RequestBody.create(okhttp3.MediaType.parse("application/json"), body))
+                .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
 
             val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

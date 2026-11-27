@@ -18,8 +18,8 @@ import javax.inject.Inject
 
 data class HomeUiState(
     val driverName: String = "Driver",
-    val bikes: List<Bike> = emptyList(),
-    val selectedBike: Bike? = null,
+    val assignedBike: Bike? = null,
+    val isUnassigned: Boolean = false,
     val isLoading: Boolean = false,
     val isTrackingActive: Boolean = false,
     val lastLat: Double? = null,
@@ -63,24 +63,30 @@ class HomeViewModel @Inject constructor(
             when (val result = repository.fetchMyBikes()) {
                 is Result.Success -> {
                     val (driverName, bikes) = result.data
-                    val current = _uiState.value.selectedBike
-                    val updated = if (current != null) {
-                        bikes.firstOrNull { it.chassisNumber == current.chassisNumber }
-                    } else bikes.firstOrNull()
+                    val bike = bikes.firstOrNull()
+
+                    if (bike != null) {
+                        prefs.activeBikeChassis = bike.chassisNumber
+                        prefs.activeBikeName = bike.displayName
+                        prefs.activeBikeId = bike.id
+                    } else {
+                        prefs.activeBikeChassis = null
+                        prefs.activeBikeName = null
+                        prefs.activeBikeId = -1
+                    }
 
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             driverName = driverName.ifBlank { prefs.driverName ?: "Driver" },
-                            bikes = bikes,
-                            selectedBike = updated ?: it.selectedBike,
-                            statusMessage = "Bikes loaded — ${bikes.size} bike(s) assigned",
+                            assignedBike = bike,
+                            isUnassigned = bike == null,
+                            statusMessage = if (bike != null) {
+                                "Assigned bike: ${bike.displayName}"
+                            } else {
+                                "No motorbike assigned to your account"
+                            },
                         )
-                    }
-
-                    // Auto-select if none chosen
-                    if (_uiState.value.selectedBike == null && bikes.isNotEmpty()) {
-                        selectBike(bikes.first())
                     }
                 }
                 is Result.Error -> {
@@ -90,24 +96,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun selectBike(bike: Bike) {
-        prefs.activeBikeChassis = bike.chassisNumber
-        prefs.activeBikeName = bike.displayName
-        prefs.activeBikeId = bike.id
-        _uiState.update {
-            it.copy(
-                selectedBike = bike,
-                statusMessage = "Switched to: ${bike.displayName}",
-            )
-        }
-    }
-
     fun setTrackingActive(active: Boolean) {
         _uiState.update { it.copy(isTrackingActive = active) }
     }
 
     fun setPermissionWarning(msg: String?) {
-        _uiState.update { it.copy(permissionWarning = msg, isTrackingActive = false) }
+        _uiState.update { it.copy(permissionWarning = msg) }
     }
 
     fun logout() {
